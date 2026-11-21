@@ -1,9 +1,22 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/tracker_shell.dart';
 import 'theme.dart';
 
-void main() => runApp(const NeerajExpenseApp());
+const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const _supabaseKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
+const _redirectUrl = 'com.neerajsawant.neerajexpense://login-callback/';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (_supabaseUrl.isNotEmpty && _supabaseKey.isNotEmpty) {
+    await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseKey);
+  }
+  runApp(const NeerajExpenseApp());
+}
 
 class NeerajExpenseApp extends StatelessWidget {
   const NeerajExpenseApp({super.key});
@@ -12,9 +25,22 @@ class NeerajExpenseApp extends StatelessWidget {
     title: 'Neeraj Expense',
     debugShowCheckedModeBanner: false,
     theme: appTheme(),
-    home: const WelcomePage(),
+    home:
+        _isSupabaseConfigured &&
+            Supabase.instance.client.auth.currentSession != null
+        ? TrackerShell(
+            name:
+                Supabase.instance.client.auth.currentUser?.email
+                    ?.split('@')
+                    .first ??
+                'Friend',
+          )
+        : const WelcomePage(),
   );
 }
+
+bool get _isSupabaseConfigured =>
+    _supabaseUrl.isNotEmpty && _supabaseKey.isNotEmpty;
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -25,25 +51,73 @@ class WelcomePage extends StatefulWidget {
 class _WelcomePageState extends State<WelcomePage> {
   final email = TextEditingController(), password = TextEditingController();
   bool hide = true;
+  bool busy = false;
+  bool createAccount = false;
+  StreamSubscription<AuthState>? authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isSupabaseConfigured) {
+      authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+        (data) {
+          if (data.event == AuthChangeEvent.signedIn && mounted) {
+            final name = data.session?.user.email?.split('@').first ?? 'Friend';
+            _open(name);
+          }
+        },
+      );
+    }
+  }
+
   @override
   void dispose() {
+    authSubscription?.cancel();
     email.dispose();
     password.dispose();
     super.dispose();
   }
 
-  void enter() {
-    if (email.text.trim().isEmpty || password.text.length < 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Enter an email and a password of at least 4 characters.',
-          ),
-        ),
+  Future<void> enter() async {
+    if (!_isSupabaseConfigured) {
+      _message(
+        'Add your Supabase project URL and publishable key to run sign-in.',
       );
       return;
     }
-    _open(email.text.trim().split('@').first);
+    if (email.text.trim().isEmpty || password.text.length < 6) {
+      _message('Enter your email and a password with at least 6 characters.');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final auth = Supabase.instance.client.auth;
+      if (createAccount) {
+        final response = await auth.signUp(
+          email: email.text.trim(),
+          password: password.text,
+        );
+        if (response.session == null && mounted) {
+          _message('Check your email to confirm your account, then sign in.');
+        }
+      } else {
+        await auth.signInWithPassword(
+          email: email.text.trim(),
+          password: password.text,
+        );
+      }
+    } on AuthException catch (error) {
+      _message(error.message);
+    } catch (error) {
+      _message('Could not sign in. Check your connection and try again.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  void _message(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _open(String name) => Navigator.of(context).pushReplacement(
@@ -165,15 +239,19 @@ class _WelcomePageState extends State<WelcomePage> {
                       width: double.infinity,
                       height: 53,
                       child: FilledButton(
-                        onPressed: enter,
+                        onPressed: busy ? null : enter,
                         style: FilledButton.styleFrom(
                           backgroundColor: ink,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Continue with email',
+                        child: Text(
+                          busy
+                              ? 'Please wait…'
+                              : createAccount
+                              ? 'Create account'
+                              : 'Sign in with email',
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -196,20 +274,35 @@ class _WelcomePageState extends State<WelcomePage> {
                     Row(
                       children: [
                         Expanded(
-                          child: _social('G', 'Google', () => _oauth('Google')),
+                          child: _social(
+                            'G',
+                            'Google',
+                            () => _oauth(OAuthProvider.google),
+                          ),
                         ),
                         const SizedBox(width: 11),
                         Expanded(
-                          child: _social('●', 'GitHub', () => _oauth('GitHub')),
+                          child: _social(
+                            '●',
+                            'GitHub',
+                            () => _oauth(OAuthProvider.github),
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 11),
-                    const Center(
-                      child: Text(
-                        'Preview only — account sign-in is not connected yet.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: muted, fontSize: 11),
+                    Center(
+                      child: TextButton(
+                        onPressed: busy
+                            ? null
+                            : () => setState(
+                                () => createAccount = !createAccount,
+                              ),
+                        child: Text(
+                          createAccount
+                              ? 'Already have an account? Sign in'
+                              : 'New here? Create an account',
+                        ),
                       ),
                     ),
                     Center(
@@ -275,11 +368,24 @@ class _WelcomePageState extends State<WelcomePage> {
           ],
         ),
       );
-  void _oauth(String provider) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        '$provider sign-in needs an authentication service and OAuth credentials.',
-      ),
-    ),
-  );
+  Future<void> _oauth(OAuthProvider provider) async {
+    if (!_isSupabaseConfigured) {
+      _message(
+        'Add your Supabase project URL and publishable key to run sign-in.',
+      );
+      return;
+    }
+    try {
+      await Supabase.instance.client.auth.signInWithOAuth(
+        provider,
+        redirectTo: _redirectUrl,
+      );
+    } on AuthException catch (error) {
+      _message(error.message);
+    } catch (error) {
+      _message(
+        'Could not start sign-in. Check the provider settings and try again.',
+      );
+    }
+  }
 }
