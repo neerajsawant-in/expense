@@ -5,9 +5,19 @@ import '../theme.dart';
 import '../widgets/app_components.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.store, required this.name});
+  const SettingsPage({
+    super.key,
+    required this.store,
+    required this.name,
+    this.accountEmail,
+    this.provider,
+    this.onAccountAction,
+  });
   final TrackerStore store;
   final String name;
+  final String? accountEmail;
+  final String? provider;
+  final Future<void> Function()? onAccountAction;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -62,13 +72,35 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 3),
-                  const Text(
-                    'Local profile · sign-in not connected',
-                    style: TextStyle(color: muted, fontSize: 11),
+                  Text(
+                    widget.accountEmail ?? 'Guest profile',
+                    style: const TextStyle(color: muted, fontSize: 11),
                   ),
+                  if (widget.provider != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Signed in with ${widget.provider}',
+                      style: const TextStyle(
+                        color: green,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+            if (widget.onAccountAction != null)
+              IconButton(
+                tooltip: widget.accountEmail == null ? 'Sign in' : 'Sign out',
+                onPressed: widget.onAccountAction,
+                icon: Icon(
+                  widget.accountEmail == null
+                      ? Icons.login_rounded
+                      : Icons.logout_rounded,
+                  color: ink,
+                ),
+              ),
           ],
         ),
       ),
@@ -134,8 +166,8 @@ class _SettingsPageState extends State<SettingsPage> {
             Divider(height: 25),
             _InfoRow(
               icon: Icons.lock_outline_rounded,
-              title: 'Accounts are not connected yet',
-              body: 'Email, Google and GitHub sign-in need an authentication service and provider credentials before they can protect or sync accounts.',
+              title: 'Your account and entries',
+              body: 'Sign-in uses Supabase. Expense entries and budget are currently stored on this device.',
             ),
           ],
         ),

@@ -10,8 +10,17 @@ import 'settings_page.dart';
 import 'transactions_page.dart';
 
 class TrackerShell extends StatefulWidget {
-  const TrackerShell({super.key, required this.name});
+  const TrackerShell({
+    super.key,
+    required this.name,
+    this.accountEmail,
+    this.provider,
+    this.onAccountAction,
+  });
   final String name;
+  final String? accountEmail;
+  final String? provider;
+  final Future<void> Function()? onAccountAction;
   @override
   State<TrackerShell> createState() => _TrackerShellState();
 }
@@ -107,7 +116,13 @@ class _TrackerShellState extends State<TrackerShell> {
                             TransactionsPage(store: store),
                             InsightsPage(store: store),
                             ReportsPage(store: store),
-                            SettingsPage(store: store, name: widget.name),
+                            SettingsPage(
+                              store: store,
+                              name: widget.name,
+                              accountEmail: widget.accountEmail,
+                              provider: widget.provider,
+                              onAccountAction: widget.onAccountAction,
+                            ),
                           ],
                         ),
                       ),

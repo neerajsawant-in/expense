@@ -9,6 +9,7 @@ import 'theme.dart';
 const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 const _supabaseKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
 const _redirectUrl = 'com.neerajsawant.neerajexpense://login-callback/';
+final _navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,7 @@ class NeerajExpenseApp extends StatelessWidget {
   const NeerajExpenseApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: _navigatorKey,
     title: 'Neeraj Expense',
     debugShowCheckedModeBanner: false,
     theme: appTheme(),
@@ -34,6 +36,9 @@ class NeerajExpenseApp extends StatelessWidget {
                     ?.split('@')
                     .first ??
                 'Friend',
+            accountEmail: Supabase.instance.client.auth.currentUser?.email,
+            provider: _providerFor(Supabase.instance.client.auth.currentUser),
+            onAccountAction: _returnToLogin,
           )
         : const WelcomePage(),
   );
@@ -41,6 +46,33 @@ class NeerajExpenseApp extends StatelessWidget {
 
 bool get _isSupabaseConfigured =>
     _supabaseUrl.isNotEmpty && _supabaseKey.isNotEmpty;
+
+String? _providerFor(User? user) {
+  if (user == null) return null;
+  final provider =
+      user.appMetadata['provider']?.toString() ??
+      (user.identities?.isNotEmpty == true
+          ? user.identities!.first.provider
+          : null);
+  return switch (provider?.toLowerCase()) {
+    'github' => 'GitHub',
+    'google' => 'Google',
+    'email' => 'Email and password',
+    null => 'Signed in',
+    _ => provider,
+  };
+}
+
+Future<void> _returnToLogin() async {
+  if (_isSupabaseConfigured &&
+      Supabase.instance.client.auth.currentSession != null) {
+    await Supabase.instance.client.auth.signOut();
+  }
+  _navigatorKey.currentState?.pushAndRemoveUntil(
+    MaterialPageRoute<void>(builder: (_) => const WelcomePage()),
+    (_) => false,
+  );
+}
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -63,7 +95,7 @@ class _WelcomePageState extends State<WelcomePage> {
         (data) {
           if (data.event == AuthChangeEvent.signedIn && mounted) {
             final name = data.session?.user.email?.split('@').first ?? 'Friend';
-            _open(name);
+            _open(name, user: data.session?.user);
           }
         },
       );
@@ -120,11 +152,17 @@ class _WelcomePageState extends State<WelcomePage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _open(String name) => Navigator.of(context).pushReplacement(
-    MaterialPageRoute(
-      builder: (_) => TrackerShell(name: name.isEmpty ? 'Friend' : name),
-    ),
-  );
+  void _open(String name, {User? user}) =>
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => TrackerShell(
+            name: name.isEmpty ? 'Friend' : name,
+            accountEmail: user?.email,
+            provider: _providerFor(user),
+            onAccountAction: _returnToLogin,
+          ),
+        ),
+      );
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Stack(
